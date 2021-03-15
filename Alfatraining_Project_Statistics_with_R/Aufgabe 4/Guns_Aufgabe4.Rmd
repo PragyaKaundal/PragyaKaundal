@@ -1,0 +1,150 @@
+---
+title: "Aufgabe 4 - t-Test für unabhängige"
+output: 
+  html_notebook:
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: FALSE
+---
+## Allgemeine Studienbeschreibung
+
+Datensatz: Guns (library AER) <br>
+Var 1 = violent (abhägige Variable) <br>
+Var 2 = law (unabhägige Variable) <br>
+
+In der vorliegenden Studie beschäftigen wir uns mit der Kriminalität in den USA. Hierbei hat uns insbesondere interessiert:<br>
+
++ Unterschiede in der Gewaltrate in Bezug auf das Wahlverhalten (Aufgabe 6).<br>
++ Zusammenhänge in der Gewaltrate in Bezug auf das Realeinkommen pro Kopf (Aufgabe 3).<br>
++ Unterschiede in der Gewaltrate, wenn es ein Gesetz im jeweiligen US Bundesstaat gibt, welches das Tragen von Waffen in der Öffentlichkeit erlaubt (Aufgabe 4).<br>
++ Signifikante Anstiege in der Inhaftierungsrate zwischen den Jahren 1979 und 1999 (Aufgabe 5).<br>
+
+Um diese Fragen zu beantworten haben wir uns für den Datensatz "Guns" des RStudio Packetes "AER" entschieden. Das Wahlverhalten je Bundesstaat wurde dem Datensatz "presidentialElections" aus dem der Library "pscl" entnommen.
+
+Der "Guns" Datensatz enthält Daten eines balancierten Panels mit Daten aus den 50 US Bundesstaaten sowie des Districts "Columbia" (insgesamt 51 Staaten) zu den Jahren 1977 bis 1999. Der presidentialElections Datensatz beinhaltet Daten zum Anteil der für die demokratische Partei abgegebenen Stimmen in den Jahren 1932 bis 2016 je Bundesstaat sowie des Districtss "Columbia".
+
+Folgende Variablen wurden im Datensatz verwendet:
+
++ income (Realeinkommen pro Kopf je US Staat) -> verhältnisskaliert
++ law (Hat der Staat ein Gesetz, welches das öffentliche Tragen von Waffen in dem betreffenden Jahr erlaubt) -> nominalskaliert
++ prisoners (verurteilte Häftlinge je 100.000 Einwohner) -> verhältnisskaliert
++ violent (Rate der Gewalttaten = Vorfälle je 100.000 Einwohner) -> verhältnisskaliert
++ demVote (Anteil der für die Demokraten abgegebenen Stimmen) -> verhältnisskaliert
++ year (Jahr 1979 vs. 1999) -> intervallskaliert, im Subset ordinalskaliert
+
+
+## Datenimport und Bereinigung
+
+```{r}
+guns <- read.csv('Guns.csv')
+guns
+```
+
+## Explorative Datenanalyse
+
+Bei der ersten Auftragung der Daten fiel direkt auf, dass es eine Reihe von Daten gab, die im allgemeinen Scatterplot der in Frage kommenden abhängigen und unabhängigen Variablen sehr auffiel. Dieser Datensatz wurde als die Daten von Washington, DC identifiziert und ist im folgenden bereits pink eingefärbt, um die Auffäligkeit zu demonstrieren. Einzig beim Einkommen sind die Daten nicht als klare Ausreißer zu erkennen.
+
+```{r}
+library(car)
+scatterplotMatrix(~violent+prisoners+income+year | (state=="District of Columbia"),
+regLine=TRUE,
+smooth=FALSE,
+diagonal=list(method="density"),
+by.groups=TRUE,
+data=guns)
+```
+Washington, DC stellt im Konstrukt der Vereinigten Staaten von Amerika als Bundesdistrikt eine Besonderheit dar. Der Distrikt ist kein Bundesstaat und ist keinem zugehörig und direkt der Regierung unterstellt. Das erklärt die Sonderrolle.
+
+Im folgenden Trennen wir die Daten vom "District of Columbia" daher aus dem Datensatz heraus und arbeiten in allen Aufgaben ohne sie weiter, da wir eine Vergleichbarkeit nicht für gegeben halten.
+
+```{r}
+gun_mod <- guns[!(guns$state == "District of Columbia"),]
+gun_dc <- guns[(guns$state == "District of Columbia"),]
+
+View(gun_mod)
+```
+
+## Hypothese 
+Wir wollen untersuchen ob sich die Gewaltrate durch ein Geetz, dass das Tragen einer Waffe erlaubt, beeinflusst. Hierfür gibt einen Datensatz im AER Paket, der pro Bundesstaat und Jahr (1977-1999) die Gewaltrate (violent) und die Existenz eines Gesetzes (law) zum Tragen einer Waffe dokumentiert. Folgende Hypothesen werden daz aufgestellt:
+
+H0: Es gibt keinen Unterschied in der Gewaltrate (violent), in Abhängigkeit ob es ein Gesetz (law) gibt, welches das Tragen von Waffen erlaubt oder nicht (yes/no). <br> 
+$$ M1=M2 $$
+H1: Es gibt einen Unterschied in der Gewaltrate (violent), in Abhängigkeit ob es ein Gesetz (law) gibt, welches das Tragen von Waffen erlaubt oder nicht (yes/no). <br> 
+$$ M_{1} \neq M_{2}\ $$
+
+## Voraussetzungen des t-Tests für unabhängige Stichproben
+✓	Die abhängige Variable ist intervallskaliert -> ja, die Gewaltrate ist metrisch <br>
+✓	Es liegt eine unabhängige Variable vor, mittels der die beiden zu vergleichenden Gruppen gebildet werden -> ja, entweder ein Gesetz zum Tragen von Waffen ist erlassen (yes) oder nicht (no) <br>
+✓	Das untersuchte Merkmal ist in den Grundgesamtheiten der beiden Gruppen normalverteilt -> siehe Histogramm <br>
+✓	Homogenität der Varianzen: Die Gruppen kommen aus Grundgesamtheiten mit annähernd identischer Varianz -> siehe Levene-Test <br>
+✓	Die einzelnen Messwerte sind voneinander unabhängig (das Verhalten einer Versuchsperson hat keinen Einfluss auf das Verhalten einer anderen) -> ja, entweder ein Gesetz zum Tragen von Waffen ist erlassen oder nicht <br>
+
+## Grundlegendes Konzept
+Der t-Test für unabhängige Stichproben testet, ob die Mittelwerte zweier unabhängiger Stichproben verschieden sind.
+Die Fragestellung des t-Tests für unabhängige Stichproben wird oft so verkürzt:
+"Unterscheiden sich die Mittelwerte zweier unabhängiger Stichproben?"
+
+## Deskriptive Statistiken
+### Histogramm
+```{r}
+library(ggplot2)
+ggplot(data=gun_mod, aes(x=violent)) +
+  geom_histogram(bins=20, aes(fill=law)) +
+  facet_wrap(~law) +
+  theme_minimal()
+```
+Die Daten in den beiden Gruppen sind annährend normalverteilt und erfüllen somit die Voraussetzung für den t-Test.
+
+```{r Warning=False}
+library(dplyr)
+
+gun_mod %>%
+  group_by(law) %>%
+  summarise(Anzahl = n(), Mittelwert = mean(violent), Median = median(violent), Standardabweichung = sd(violent)) %>%
+  mutate_if(is.numeric, round, 2)
+
+```
+Es zeigt sich für diese Fragestellung einen Mittelwertsunterschied. Der Mittelwert der Gewaltrate ist niedriger, wenn das Tragen einer Waffen erlaubt ist (M = 381.05 SD = 266.55, n = 285), als wenn das Tragen der Waffe nicht erlaubt ist (M = 502.17 SD = 232.70, n = 865). Die zwei Gruppen sind ungleich groß.
+
+## Test auf Varianzhomogenität (Levene-Test)
+```{r}
+library(car)
+
+leveneTest(gun_mod$violent, gun_mod$law, center = mean)
+```
+Der Levene Test ist signifikant (F(1,1148)= 4.5042 p=0.03403), damit sind die Varianzen der zwei Gruppen heterogen und die Welch-Korrektur wird angewendet.
+
+## Ergebnisse des t-Tests für unabhängige Stichproben
+```{r}
+ttest<- t.test(gun_mod$violent ~ gun_mod$law,
+               var.eq = FALSE, 
+               con= 0.95,     
+               alt = "two.sided")
+
+ttest
+```
+Die Teststatistik betraegt t = 6.8583 und der zugehörige Signifikanzwert p = 2.398e-11. Damit ist der Unterschied signifikant:
+Mittelwerte der beiden Gruppen, ob ein Gesetz zum Tragen einer Waffe existiert, unterscheiden sich (t(435.51) = 6.8583, p = 2.398e-11, n= 1150)
+
+##	Berechnung der Effektstärke
+```{r Warning=FALSE}
+library(effsize)
+
+cohen.d(d = gun_mod$violent, f= gun_mod$law)
+```
+
+Cohen (1988):
+$$ \begin{align}
+\text{Schwacher Effekt: } 0.20 &< ||d|| < 0.50             \\
+\text{Schwacher bis mittlerer Effekt: } 0.50 &= ||d||      \\
+\text{Mittlerer Effekt: } 0.50 &< ||d|| < 0.80             \\
+\text{Mittlerer bis starker Effekt: }0.80 &= ||d||         \\
+\text{Starker Effekt: } 0.80 &< ||d||        
+\end{align} $$
+
+Die Effektstärke beträgt 0.50, dies entspricht nach Cohen (1988) einem schwachen bis mittleren Effekt.
+
+##	Eine Aussage
+Der Mittelwert der Gewaltrate ist niedriger, wenn das Tragen einer Waffen erlaubt ist (M = 381.05 SD = 266.55, n = 285), als wenn das Tragen der Waffe nicht erlaubt ist (M = 502.17 SD = 232.70, n = 865). Die Effektstärke beträgt 0.50, dies entspricht einem schwachen bis mittleren Effekt nach Cohen (1988). H0 kann verworfen werden.
+Das heisst, dass die Berechtigung zum Tragen einer Waffen einen Unterschied in der Gewaltrate macht.  

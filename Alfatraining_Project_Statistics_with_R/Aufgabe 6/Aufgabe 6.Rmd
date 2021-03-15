@@ -1,0 +1,315 @@
+---
+title: "Aufgabe 6 - einfaktorielle ANOVA "
+output: 
+  html_notebook:
+    toc: true
+    toc_depth: 4
+    toc_float:
+      collapsed: FALSE
+---
+
+## 0) Daten und Bibliotheken
+
+### 0.1) Import der Bibliotheken
+```{r}
+library(dplyr)
+library(ggplot2)
+library(car)
+library(psych)
+library(effectsize)
+library(tidyverse)
+```
+
+### 0.2) Datenimport und Bereinigung
+```{r}
+guns <- read.csv('Guns.csv')
+elec <- read.csv("presidentialElections.csv")
+
+head(guns)
+head(elec)
+```
+
+**District of Columbia aus guns Datensatz entfernen**
+
+Bei der ersten Auftragung der Daten fiel direkt auf, dass es eine Reihe von Daten gab, die im allgemeinen Scatterplot der in Frage kommenden abhängigen und unabhängigen Variablen sehr auffiel. Dieser Datensatz wurde als die Daten von Washington, DC identifiziert und ist im folgenden bereits pink eingefärbt, um die Auffäligkeit zu demonstrieren. Einzig beim Einkommen sind die Daten nicht als klare Ausreißer zu erkennen.
+
+```{r Scatterplot alle vs DC 4, fig.width=10}
+scatterplotMatrix(~violent + prisoners + income + year | (state == 'District of Columbia'),
+                  regLine = TRUE,
+                  smooth = FALSE,
+                  diagonal = list(method='density'),
+                  by.groups = TRUE,
+                  data = guns)
+```
+
+Washington, DC stellt im Konstrukt der Vereinigten Staaten von Amerika als Bundesdistrikt eine Besonderheit dar. Der Distrikt ist kein Bundesstaat und ist keinem zugehörig und direkt der Regierung unterstellt. Das erklärt die Sonderrolle.
+
+Im folgenden Trennen wir die Daten vom "District of Columbia" daher aus dem Datensatz heraus und arbeiten in allen Aufgaben ohne sie weiter, da wir eine Vergleichbarkeit nicht für gegeben halten.
+
+```{r}
+guns <- guns[!(guns$state == "District of Columbia"),]
+```
+
+**ID Spalte in guns und elec für inner join anlegen**
+```{r}
+guns <- guns %>% 
+  unite("ID", year,state, sep="_")
+
+elec <- elec %>% 
+  unite("ID", year, state, sep="_")
+```
+
+**Zusammenführung der beiden Datensätze anhand der ID**
+```{r}
+gun_merge <- inner_join(guns, elec, by = "ID")
+
+describe(gun_merge)
+```
+
+**Kategorisierung der Variable demVote**
+
+Im Datensatz presidentialElections (library pscl) sind nur die demokratischen Stimmen erfasst, Stimmen für Drittkandidaten und ungültige Stimmen werden so dem konservativen Lager zugerechnet. Zudem wählen dicht besidelte Staaten tendenziell ehe liberal, Flächenstaaten eher konservativ. Aus diesen Gründen wurde bei der Kategorisierung der Variable demVote eine leicht Verschiebung hin zu 'liberal' gewählt.
+
+```{r}
+hist(gun_merge$demVote, main="Hist. der dem. Stimmen", xlab="Anteil der demokratischen Stimmen", ylab="Anzahl")
+```
+
+Auch das Historgamm oben zeigt, dass es eine Konzentration der Stimmen für die Demokraten im Bereich zwischen 40% und 50% gibt.
+
+```{r}
+gun_merge$statetype <- 
+  case_when((gun_merge$demVote <= 40.0) ~ 'conservative',
+            (gun_merge$demVote > 40.0) & (gun_merge$demVote < 50.0) ~ 'moderate', 
+            (gun_merge$demVote >= 50.0) ~ 'liberal')
+length(grep('conservative', gun_merge$statetype))
+length(grep('moderate', gun_merge$statetype))
+length(grep('liberal', gun_merge$statetype))
+```
+
+Zudem wurden alle Datensätze aus dem Datensatz Guns entfernt, in denen keine Präsidentschaftswahlen stattgefunden haben. Der Datensatz Guns wurde also um ca. 75% reduziert.
+
+**Sortierung der Daten nach statetype**
+```{r}
+gun_merge$statetype <- factor(gun_merge$statetype, levels=c("liberal", "moderate", "conservative"))
+```
+
+### 0.3) Allgemeine Studienbeschreibung
+
+In der vorliegenden Studie beschäftigen wir uns mit der Kriminalität in den USA. Hierbei hat uns insbesondere interessiert:<br>
+
++ Unterschiede in der Gewaltrate in Bezug auf das Wahlverhalten (Aufgabe 6).<br>
++ Zusammenhänge in der Gewaltrate in Bezug auf das Realeinkommen pro Kopf (Aufgabe 3).<br>
++ Unterschiede in der Gewaltrate, wenn es ein Gesetz im jeweiligen US Bundesstaat gibt, welches das Tragen von Waffen in der Öffentlichkeit erlaubt (Aufgabe 4).<br>
++ Signifikante Anstiege in der Inhaftierungsrate zwischen den Jahren 1979 und 1999 (Aufgabe 5).<br>
+
+Um diese Fragen zu beantworten haben wir uns für den Datensatz "Guns" des RStudio Packetes "AER" entschieden. Das Wahlverhalten je Bundesstaat wurde dem Datensatz "presidentialElections" aus dem der Library "pscl" entnommen.
+
+Der "Guns" Datensatz enthält Daten eines balancierten Panels mit Daten aus den 50 US Bundesstaaten sowie des Districts "Columbia" (insgesamt 51 Staaten) zu den Jahren 1977 bis 1999. Der presidentialElections Datensatz beinhaltet Daten zum Anteil der für die demokratische Partei abgegebenen Stimmen in den Jahren 1932 bis 2016 je Bundesstaat sowie des Districtss "Columbia".
+
+Folgende Variablen wurden im Datensatz verwendet:
+
++ income (Realeinkommen pro Kopf je US Staat) -> verhältnisskaliert
++ law (Hat der Staat ein Gesetz, welches das öffentliche Tragen von Waffen in dem betreffenden Jahr erlaubt) -> nominalskaliert
++ prisoners (verurteilte Häftlinge je 100.000 Einwohner) -> verhältnisskaliert
++ violent (Rate der Gewalttaten = Vorfälle je 100.000 Einwohner) -> verhältnisskaliert
++ demVote (Anteil der für die Demokraten abgegebenen Stimmen) -> verhältnisskaliert
++ year (Jahr 1979 vs. 1999) -> intervallskaliert, im Subset ordinalskaliert
+
+### 0.4) Datensätze: 
+
+**Guns (library AER)**
+
+Variable 1: violent
+
+Description
+Guns is a balanced panel of data on 50 US states, plus the District of Columbia (for a total of 51 states), by year for 1977–1999.
+
+**presidentialElections (library pscl)**
+
+Variable 2: demVote (kategorisiert)
+
+Description
+Democratic share of the presidential vote, 1932-2016, in each state and the District of Columbia.
+
+## 1) Hypothese
+
+Es gibt Behauptungen, dass konservative Staaten sicherer seien als andere Staaten. Daher wollen wir untersuchen, ob wir Unterschiede finden können
+
+$H_0$: Es gibt keinen mittleren Unterschied in der Rate der Gewaltverbrechen (violent) über die politische Tendenz eines Staates (conservative, moderate, liberal) hinweg. $M_l = M_m = M_c$
+
+$H_1$: Es gibt einen mittleren Unterschied in der Rate der Gewaltverbrechen (violent) über die politische Tendenz eines Staates (conservative, moderate, liberal) hinweg. $M_l \neq M_m \neq M_c$ (für mind. einen Fall)
+
+## 2) Voraussetzungen für die einfaktoriellen Varianzanalyse ohne Messwiederholung
+
++ Die abhängige Variable ist intervallskaliert -> **die Rate der Gewaltverbrechen pro 100k Einwohner (violent) ist metrisch**
++ Die unabhängige Variable (Faktor) ist kategorial (nominal- oder ordinalskaliert) -> **die politische Tendenz (statetype) ist kategorial**
++ Die durch den Faktor gebildeten Gruppen sind unabhängig -> **die Staaten sind klar voneinander abgegrenzt**
++ Die abhängige Variablen ist normalverteilt innerhalb jeder der Gruppen (Ab > 25 Probanden pro Gruppe sind Verletzungen in der Regel unproblematisch) -> **siehe Histogramm**
++ Homogenität der Varianzen: Die Gruppen stammen aus Grundgesamtheiten mit annähernd identischen Varianzen der abhängigen Variablen -> **siehe Levene-Test**
+
+## 3) Grundlegende Konzepte: Was ist die einfaktoriellen Varianzanalyse ohne Messwiederholung
+
+Die einfaktorielle Varianzanalyse – auch "einfaktorielle ANOVA", da in Englisch "Analysis of Variance" – testet, ob sich die Mittelwerte mehrerer unabhängiger Gruppen (oder Stichproben) unterscheiden, die durch eine kategoriale unabhängige Variable definiert werden. Diese kategoriale unabhängige Variable wird im Kontext der Varianzanalyse als "Faktor" bezeichnet. Entsprechend werden die Ausprägungen der unabhängigen Variable "Faktorstufen" genannt, wobei auch der Begriff der "Treatments" gebräuchlich ist. Als "einfaktoriell" wird eine Varianzanalyse bezeichnet, wenn sie lediglich einen Faktor, also eine Gruppierungsvariable, verwendet mehrfaktorielle Varianzanalyse).
+
+Das Prinzip der Varianzanalyse besteht in der Zerlegung der Varianz der abhängigen Variable. Die Gesamtvarianz setzt sich aus der sogenannten "Varianz innerhalb der Gruppen" und der "Varianz zwischen den Gruppen" zusammen. Diese beiden Anteile werden im Rahmen einer Varianzanalyse miteinander verglichen. Die einfaktorielle ANOVA stellt eine Verallgemeinerung des t-Tests für unabhängige Stichproben für Vergleich von mehr als zwei Gruppen (oder Stichproben) dar. Die Fragestellung der einfaktoriellen Varianzanalyse wird oft so verkürzt: "Unterscheiden sich die Mittelwerte einer unabhängigen Variable zwischen mehreren Gruppen? Welche Faktorstufen unterscheiden sich?"
+
+**Beispiel-Fragestellungen**
+
++ Unterscheidet sich in der Berufserfahrung (viel, mittel, gering),
++ Wie hoch der Stundenlohn ausfällt?
++ Beeinflusst der Beziehungsstatus der Eltern (geschieden, patchwork, verheiratet) die Lebenszufriendenheit der Kinder?
++ Fünf verschiedene Verkaufsstrategien werden unter Laborbedingungen getestet. Welche Strategie erhöht die Zahlungsbereitschaft der Konsumenten?
++ Mit vier Gruppen von Versuchspersonen wurde je ein andere Sportarten trainiert. Welche der Sportarten ist am erfolgreichsten in Bezug auf die Ausdauer?
++ Unterscheiden sich der Stundenlohn zwischen Master, Bachelor und Geselle?
+
+## 4) Deskriptive Statistiken 
+
+#### 4.1) Boxplot
+```{r fig.height=6, fig.width=11}
+boxplot(gun_merge$violent ~ gun_merge$statetype, 
+        main = "Boxplots zum Vergleich", 
+        ylab = "Verbrechensrate", 
+        xlab= "politische Tendenz", 
+        col = c("lightgreen", "deepskyblue", "tomato"))
+```
+Der Boxplot zeigt, dass es kaum Ausreißer gibt. Allerdings lassen sich die Verteilungen auch nicht eindeutig voneinander zu unterscheiden.
+
+#### 4.2) Histogramme
+
+**Base**
+```{r fig.height=6, fig.width=11}
+gun_merge %>%
+  group_by(statetype) %>%
+  ggplot(aes(violent, color = statetype)) +
+  geom_histogram(aes(fill = statetype), bins = 20) +
+  facet_wrap(~statetype) +
+  theme_grey() +
+  labs(x = 'Verbrechensrate', y = 'politische Tendenz')
+```
+
+Die Daten sind annähernd normalverteilt, wenn auch im Falle von 'liberal' nicht ganz so schön.
+
+**QQPlot**
+```{r fig.height=6, fig.width=11}
+qqPlot(violent ~ statetype, data = gun_merge, 
+       layout=c(1, 3))
+```
+
+Im QQplot lässt sich auch eine annähernde Normalverteilung ablesen.
+
+#### 4.3) Deskriptive
+
+Die Tabelle in Abbildung gibt die Mittelwerte, Standardabweichungen und Grössen aller vier Gruppen wieder. Diese Informationen werden für die Berichterstattung verwendet.
+
+```{r}
+gun_merge %>%
+  group_by(statetype) %>%
+  summarize(Anzahl = n(), Mittelwert = mean(violent), Median = median(violent), Standardabweichung = sd(violent)) %>%
+  mutate_if(is.numeric, round, 3)
+```
+
+Zwischen den den drei verschiedenen Gruppen gibt es zwar Mittelwertsunterschiede, aber die Standardabweichungen sind sehr hoch. Die kleinste Gruppe der liberalen Staaten liegt bei der Gewaltverbrechensrate in der Mitte (Mittelwert=495.21, STD=267.3, n=30), die moderaten Staaten haben die höchste GVR (Mittelwert=512.38, STD=252.17, n=125) und die konservative Staaaten sind am unteren Ende (Mittelwert=433.76, STD=240.98, n=95).
+
+## 5) Prüfung der Varianzhomogenität (Levene-Test)
+
+Der Levene-Test prüft für die Nullhypothese, dass die Varianzen der Gruppen sich nicht unterscheiden. Ist der Levene-Test nichtsignifikant, so kann von homogenen Varianzen ausgegangen. Wäre der Levene-Test jedoch signifikant, so wäre eine der Grundvoraussetzungen der Varianzanalyse verletzt. Gegen leichte Verletzungen gilt die Varianzanalyse als robust; vor allem bei genügend grossen und etwa gleich grossen Gruppen sind Verletzungen nicht problematisch. Bei ungleich grossen Gruppen führt eine starke Verletzung der Varianzhomogenität zu einer Verzerrung des F-Tests. Alternativ können dann auf den den Welch-Test zurückgegriffen werden. Dabei handelt es sich um adjustierte F-Tests.
+
+```{r}
+leveneTest(gun_merge$violent ~ gun_merge$statetype, center = 'mean')
+```
+Im vorliegenden Beispiel ist der Levene-Test nicht signifikant (F(2, 247) = .5213, p = .5944), so dass von **Varianzhomogenität** ausgegangen werden kann. Es wir keine Welch-Korrektur durchgeführt.
+
+**Hinweis:**
+
++ Mit Welch-Korrektur: p < 0.05 => Ergebnis Signifikant –> Varianzen heterogen
+
++ Ohne Welch-Korrektur: p > 0.05 => Ergebnis nicht Signifikant –> Varianzen homogen –> H0 mit Annahme $Var_1 = Var_2 = ... = Var_n$ wird angenommen
+
+## 6) Ergebnisse der einfaktoriellen Varianzanalyse ohne Messwiederholung
+
+**ohne Welch-Korrektur**
+
+```{r}
+gun_aov <- aov(data = gun_merge, violent ~ statetype)
+summary(gun_aov)
+```
+
+Das Gesamtmodel ist nicht signifikant geworden (F(2, 247) = 2.732 , p = .067). An dieser Stelle ist eine weitere Analyse eigentlich nicht notwendig. Aus Gründen der Übung und Vollständigkeit soll jedoch der Test vollständig durchgeführt werden.
+
+```{r}
+pairwise.t.test(gun_merge$violent, gun_merge$statetype, 
+p.adjust.method = "bonferroni", 
+paired = FALSE, 
+data = gun_merge)
+```
+
+Auch mit dem pairwise.t.test mit Bonferroni-Korrektur kommt man zum selben Ergebnis.
+
+## 7) Post-hoc-Tests
+
+Obwohl der F-Test zeigt, dass das Gesmatmodell nicht signifikant geworden ist, soll an dieser Stelle dennoch ein Post-Hoc-Test durchgeführt werden. Der Post-Hoc soll eigentlich zeigen, zwischen welchen Faktorstufen (politische Tendenz) signifikante unterscheide bezüglich der Kriminalitätsrate bestehen.
+
+$$\frac{k\cdot(k-1)}{2} =\frac{3\cdot(3-1)}{2} = \frac{6}{2} = 3$$
+
+Bei der Berechnung von Post-hoc-Tests wird im Prinzip für jede Kombination von zwei Mittelwerten ein t -Test durchgeführt. Im aktuellen Beispiel mit drei Gruppen sind dies 3 Tests. Multiple Tests sind jedoch problematisch, da der Alpha-Fehler (die fälschliche Ablehnung der Nullhypothese) mit der Anzahl der Vergleiche steigt.
+
+Wird nur ein t-Test mit einem Signifikanzlevel von .05 durchgeführt, so beträgt die Wahrscheinlichkeit des Nicht-Eintreffens des Alpha-Fehlers 95 Prozent. Werden jedoch drei solcher Paarvergleiche vorgenommen, so beträgt die Nicht-Eintreffens-Wahrscheinlichkeit des Alpha-Fehlers (.95)^3 = .857. Um die Wahrscheinlichkeit des Eintreffens des Alpha-Fehlers zu bestimmen, wird 1 - .857 = .143 gerechnet. Die Wahrscheinlichkeit des Eintreffens des Alpha-Fehlers liegt somit bei 14.3 Prozent. Diese Fehlerwahrscheinlichkeit wird als “Familywise Error Rate” bezeichnet.
+
+Um dieses Problem zu beheben kann zum Beispiel die Tukey angewendet werden. RStudio rechnet das neue Niveau ein, daher können wir weiter auf 0.05 testen.
+
+**Tukey**
+```{r}
+TukeyHSD(aov(data = gun_merge, violent ~ statetype))
+```
+
+Es wird ersichtlich, dass sich die politische Tendenz in einem Staat für keine der 3 Gruppen signifikant unterscheidet (p > .05). Es können keine unabhängigen / generalisierbaren Gruppen gebildet werden.
+
+## 8) Profildiagramm
+
+Das Profildiagramm kann eine klares visuelles Bild der Gruppen vermitteln.
+
+```{r fig.height=6, fig.width=11}
+ggplot(gun_merge, aes(x = statetype, y = violent, group = 1, color = statetype)) +
+  stat_summary(fun = mean, geom = 'point', size = 3) +
+  stat_summary(fun = mean, geom = 'line') +
+  stat_summary(fun.data = mean_cl_normal, geom = "errorbar", width = .2, size = .25) +
+  labs(x = 'politische Tendenz', y = 'Kriminalitätsrate', title = 'Profildiagramm - Kriminalitätsrate vs. politische Tendenz') +
+  #ggtitle('Profildiagramm - Kriminalitätsrate vs. politische Tendenz') +
+  theme_classic()
+```
+
+## 9) Das partielle Eta-Quadrat
+
+Das partielle Eta-Quadrat (auch partielles $\eta^2$ oder $\eta^2_p$) ist ein Mass für die Effektgrösse: Es setzt die Variation, die durch einen Faktor erklärt wird, in Bezug mit jener Variation, die nicht durch andere Faktoren im Modell erklärt wird. Das heisst, es wird ausschliesslich jene Variation betrachtet, welche nicht durch die anderen Faktoren im Modell erklärt wird. Das partielle Eta-Quadrat zeigt, welchen Anteil davon ein Faktor erklärt. Im Falle der einfaktoriellen Varianzanalyse ist das partielle Eta-Quadrat jener Anteil der korrigierten Gesamtvariation, der durch das Modell erklärt wird.
+
+```{r}
+gun_eta <- eta_squared(gun_aov, partial = TRUE)
+gun_eta
+```
+
+Hinweis: Im vorliegenden Beispiel beträgt das partielle Eta-Quadrat .02. Das heisst, es wird 2% der Variation in der Kriminalitätsrate durch die politische Tendenz aufgeklärt. “90% CI” beschreibt das Konfidenzintervall für 90 %. Dieses liegt hier zwischen 0% und 6%.
+
+## 10) Berechnung der Effektstärke
+```{r}
+gun_eff <- sqrt(gun_eta$Eta2 / (1 - gun_eta$Eta2))
+gun_eff
+```
+
+Um zu beurteilen, wie gross dieser Effekt ist, kann man sich an der Einteilung von Cohen (1988) orientieren:
+$$
+\begin{align}
+\text{Schwacher Effekt: } 0.10 &< ||f|| < 0.25             \\
+\text{Schwacher bis mittlerer Effekt: } 0.25 &= ||f||      \\
+\text{Mittlerer Effekt: } 0.25 &< ||f|| < 0.40             \\
+\text{Mittlerer bis starker Effekt: }0.40 &= ||f||         \\
+\text{Starker Effekt: } 0.40 &< ||f||        
+\end{align}
+$$
+
+Die Effektstärke beträgt 0.15. Da kein signifikanter Unterschied vorliegt, ist auch kein Effekt vorhanden.
+
+## 11) Eine Aussage
+
+Im vorliegenden Beispiel gibt es **keinen Haupteffekt** - die politische Tendenz in einem Staat hat keinen signifikanten Einfluss auf die Kriminalitätsrate (F(2, 247) = 2.732 , p = .067) - obwohl sich in der deskriptiven Statistik Mittelwertsunteschiede zeigen: conservative (M = 433.76, SD = 240.98, n = 95), moderate (M = 512.38, SD = 252.17, n = 125) und liberal (M = 495.21, SD = 267.30, n = 30). Lediglich 2 % der Streuung der Kriminalitätsrate um den Gesammtmittelwert kann durch die politische Tendenz in einem Staat erklärt werden. **Gäbe es einen Haupteffekt**, läge für diesen Fall nach Cohen (1988) mit f = .15 lediglich ein schwacher Effekt vor. Da jedoch kein Haupteffekt vorliegt, der auf die Population übertragen werden kann, wird dieser schwache Effekt hier als kein Effekt angesehen. $H_1$ wird verworfen, $H_0$ wird beibehalten.
+
+Wie fast zu erwarten zeigt der Post-Hoc-Test mit Tukey, dass sich keine Gruppen bilden lassen (alle p > .05). Der Vollständigkeit halber wurde er im Rahmen dieser Übung dennoch durchgeführt.

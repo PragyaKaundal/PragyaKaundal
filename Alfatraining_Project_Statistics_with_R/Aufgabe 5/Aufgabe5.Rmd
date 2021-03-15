@@ -1,0 +1,263 @@
+---
+title: "Aufgabe 5 - einseitiger t-Test für abhängige Variablen"
+output:
+  html_notebook:
+    theme: cosmo
+    highlight: tango
+    toc: true
+    toc_depth: 4
+    toc_float: 
+      collapsed: false
+---
+
+| Datensatz: |  guns (library AER) |
+|---|---|
+| Var1 = | prisoners |  
+| Var2 = | year (1979 vs. 1999) |
+
+
+# Allgemeine Studienbeschreibung
+
+In der vorliegenden Studie beschäftigen wir uns mit der Kriminalität in den USA. Hierbei hat uns insbesondere interessiert:<br>
+
++ Unterschiede in der Gewaltrate in Bezug auf das Wahlverhalten (Aufgabe 6).<br>
++ Zusammenhänge in der Gewaltrate in Bezug auf das Realeinkommen pro Kopf (Aufgabe 3).<br>
++ Unterschiede in der Gewaltrate, wenn es ein Gesetz im jeweiligen US Bundesstaat gibt, welches das Tragen von Waffen in der Öffentlichkeit erlaubt (Aufgabe 4).<br>
++ Signifikante Anstiege in der Inhaftierungsrate zwischen den Jahren 1979 und 1999 (Aufgabe 5).<br>
+
+Um diese Fragen zu beantworten haben wir uns für den Datensatz "Guns" des RStudio Packetes "AER" entschieden. Das Wahlverhalten je Bundesstaat wurde dem Datensatz "presidentialElections" aus dem der Library "pscl" entnommen.
+
+Der "Guns" Datensatz enthält Daten eines balancierten Panels mit Daten aus den 50 US Bundesstaaten sowie des Districts "Columbia" (insgesamt 51 Staaten) zu den Jahren 1977 bis 1999. Der presidentialElections Datensatz beinhaltet Daten zum Anteil der für die demokratische Partei abgegebenen Stimmen in den Jahren 1932 bis 2016 je Bundesstaat sowie des Districtss "Columbia".
+
+Folgende Variablen wurden im Datensatz verwendet:
+
++ income (Realeinkommen pro Kopf je US Staat) -> verhältnisskaliert
++ law (Hat der Staat ein Gesetz, welches das öffentliche Tragen von Waffen in dem betreffenden Jahr erlaubt) -> nominalskaliert
++ prisoners (verurteilte Häftlinge je 100.000 Einwohner) -> verhältnisskaliert
++ violent (Rate der Gewalttaten = Vorfälle je 100.000 Einwohner) -> verhältnisskaliert
++ demVote (Anteil der für die Demokraten abgegebenen Stimmen) -> verhältnisskaliert
++ year (Jahr 1979 vs. 1999) -> intervallskaliert, im Subset ordinalskaliert
+
+# Prämbel
+
+## Einbindung der Pakete
+
+```{r}
+library(dplyr)
+library(ggplot2)
+library(car)
+library(psych)
+```
+
+## Datenimport
+
+```{r}
+guns <- read.csv('Guns.csv')
+guns
+```
+## Explorative Datenanalyse
+
+Bei der ersten Auftragung der Daten fiel direkt auf, dass es eine Reihe von Daten gab, die im allgemeinen Scatterplot der in Frage kommenden abhängigen und unabhängigen Variablen sehr auffiel. Dieser Datensatz wurde als die Daten von Washington, DC identifiziert und ist im folgenden bereits pink eingefärbt, um die Auffäligkeit zu demonstrieren. Einzig beim Einkommen sind die Daten nicht als klare Ausreißer zu erkennen.
+
+```{r Scatterplot alle vs DC 5, fig.width=10}
+#Benötigt CAR
+scatterplotMatrix(~violent+prisoners+income+year | (state=="District of Columbia"),
+                  regLine=TRUE,
+                  smooth=FALSE,
+                  diagonal=list(method="density"),
+                  by.groups=TRUE,
+                  data=guns) #Achtung hier liegt die Tabelle
+```
+
+Washington, DC stellt im Konstrukt der Vereinigten Staaten von Amerika als Bundesdistrikt eine Besonderheit dar. Der Distrikt ist kein Bundesstaat und ist keinem zugehörig und direkt der Regierung unterstellt. Das erklärt die Sonderrolle.
+
+Im folgenden Trennen wir die Daten vom "District of Columbia" daher aus dem Datensatz heraus und arbeiten in allen Aufgaben ohne sie weiter, da wir eine Vergleichbarkeit nicht für gegeben halten.
+
+```{r Abtrennung von DC}
+#Benötigt CAR
+gun_mod <- guns[!(guns$state == "District of Columbia"),]
+gun_dc <- guns[(guns$state == "District of Columbia"),]
+```
+
+# Auswertung
+
+Laut "last Week Tonight" hat sich die Situation in amerikanischen Gefängnissen über die letzten Jahrzehnte sehr verschlechtert. Wir wollen überprüfen, ob das auch durch gestiegenen Inhaftiertenzahlen enstanden ist.
+
+## 1)	Hypothesen (gerichtet)
+
+$\cal H_1$: Es gibt im Jahr 1999 eine höhere Inhaftierungsrate (pro 100.000 Einwohner, Wert des Vorjahrs) pro Staat im Vergleich mit dem Jahr 1979. $M_{1999}>M_{1979}$ 
+$\cal H_0$: Es gibt im Jahr 1999 eine gleiche oder niedrigere Inhaftierungsrate (pro 100.000 Einwohner, Wert des Vorjahrs) pro Staat im Vergleich mit dem Jahr 1979. $M_{1999}\leq M_{1979}$
+
+### Die Variablen für die Hypothesen 
+
+| Datensatz: |  guns (library AER) |
+|---|---|
+| Var1 = | prisoners |  
+| Var2 = | year (1979 vs. 1999) |
+
+## 2)	Voraussetzungen des t-Tests für abhängige Stichproben
+
+* Voraussetzungen des t-Tests für abhängige Stichproben
+Die abhängige Variable ist min. intervallskaliert -> **Ja, Inhaftierungsrate ist metrisch.**
+* Es liegen zwei verbundene Stichproben oder Gruppen vor, aber die verschiedenen Messwertpaare sind voneinander unabhängig. -> **1) Sie sind verbundenen durch den Staat, 2) aber unabhängige, weil es zwei verschiedene Jahre sind (Messwiederholung).**
+* Die Unterschiede zwischen den verbundenen Testwerten sind in der Grundgesamtheit normalverteilt (bei Stichproben > 30 sind Verletzungen unproblematisch) -> **Es handelt sich um 50 Staaten. Siehe dennoch das Histogramm und qqPlot!**
+
+## 3)	Grundlegende Konzepte: Was ist t-Test für abhängige Stichproben?
+
+Der t-Test für abhängige Stichproben überprüft, ob die Mittelwerte zweier abhängiger/gepaarter Stichproben verschieden sind.
+
+Von "abhängigen Stichproben" wird gesprochen, wenn der Messwert und ein bestimmter anderer Messwert sich gegenseitig beeinflussen. In folgende Situationen, die sich für eine verbundene Stichprobe eignen.
+
+**Messwiederholung**:
+Die Messwerte stammen von der gleichen Person z.B. Messzeitpunkt #1 verglichen mit Messzeitpunkt #2.
+
+**Natürliche Paare**:
+Die Messwerte stammen von verschiedenen Personen, die aber zusammen gehören:Ehefrau – Ehemann, Psychologe – Patient oder Zwillinge.
+
+**Matching**:
+Die Messwerte stammen ebenfalls von verschiedenen Personen, die einander zugeordnet wurden. Aufgrund eines vergleichbaren Werts (Drittvariablen) werden Matching-Paare gebildet. 
+
+**Im vorliegenden Fall handelt es sich um eine Messwiederholung.**
+
+## 4)	Deskriptive Statistiken und Korrelation
+
+Um die deskriptiven Analysen zu machen werden zunächst die zwei verscheidenen Jahre 1979 und 1999 aus dem Gesamtdatensatz gefiltert.
+
+### Herausfiltern der beiden Jahre
+
+```{r Filtern von 1979}
+EarlyPrisoners <- filter(gun_mod, year==1979)
+EarlyPrisoners <- EarlyPrisoners[order(EarlyPrisoners$state),]
+head(EarlyPrisoners)
+```
+
+```{r Filtern 1979}
+LatePrisoners <- filter(gun_mod, year==1999)
+LatePrisoners <- LatePrisoners[order(LatePrisoners$state),]
+head(LatePrisoners)
+```
+
+Die Differenz der abhängigen Daten wird bereits an dieser Stelle berechnet und in einer neuen Tabelle mit den anderen Daten zusammengefasst. Die vorherigen Daten wurden nicht verworfen, um abhängig von den Ergebnissen leichtere Nachforschungen zu ermöglichen.
+
+```{r Erzeugung Tabelle + Differenz}
+DiffPrisoners <- EarlyPrisoners[c(13,6)] 
+colnames(DiffPrisoners)[2] <- "prisoners1979"
+
+DiffPrisoners$prisoners1999 <- NULL
+ncol(DiffPrisoners)
+DiffPrisoners<- cbind(DiffPrisoners, "prisoners1999"= LatePrisoners$prisoners)
+DiffPrisoners$difference <- NULL
+ncol(DiffPrisoners)
+DiffPrisoners <- cbind(DiffPrisoners, "difference"= (DiffPrisoners$prisoners1999 - DiffPrisoners$prisoners1979))
+head(DiffPrisoners)
+```
+
+### Berechnung der statistischen Maße
+
+```{r stat Masse}
+describe(DiffPrisoners)
+```
+
+Nach der Entfernung von Washington, DC haben wir einen Datensatz der die 50 Staaten umfasst. Die beiden Zeitpunkte der Datenerhebung unterscheiden sich zwischen 1979 (Mittelwert=113.5, STD=54.9, n=50) und 1999 (Mittelwert=366.3, STD=141.2, n=50) deutlich in der Inhaftierungsrate. Die Mediane liegen dabei auch sehr in der Nähe der Mittelwerte. Es ist schon anhand der Mittelwerte und Standardabweichungen kaum eine Überdeckungen zu vermuten (was sich auch an der bereits in der Tabelle befindlichen Differenz zeigt, die deutlich von Null abweicht: Mittelwert=252.84, STD=108.97, n=50).
+
+
+```{r Scatterplot der verschiedenen Jahre}
+TEMP <- scatterHist(DiffPrisoners$prisoners1999, DiffPrisoners$prisoners1979,
+             main = "Vergleich der Inhaftierungsrate",      #Überschrift 
+             xlab = "Inhaftierungsrate 1999",             # x-Achse
+             ylab= "Inhaftierungsrate 1979",              # y-Achse
+             pch=17,                      # Dreiecke 
+             col= "darkgray" ,            # Farbe
+           #ellipse = FALSE,              # Keine Kreise
+          method = "pearson"              #-0.11  ->r
+            
+            
+            )
+```
+Die Verteilung der Werte von 1979 und 1999 sehen alleinig bereits mit einer jeweiligen Schiefe normalverteilt aus und der Scatterplot berechnet und zeigt bereits eine Korrelation. Diese soll im folgenden daher formell berechnet werden.
+
+```{r Alternatives Streudiagramm, eval=FALSE, include=FALSE}
+#library(car)
+scatterplot(DiffPrisoners$prisoners1999 ~ DiffPrisoners$prisoners1979, main = "Streudiagramm der Inhaftierungsrate zwischen 1979  und 1999", xlab = "HR 1979", ylab= "HR 1999")
+```
+
+### Korrelationsberechnung
+
+```{r}
+CortestPrisoners <- cor.test(LatePrisoners$prisoners, EarlyPrisoners$prisoners)
+CortestPrisoners
+```
+
+Die Inhaftierungsraten der Staaten zu den zwanzig Jahre auseinanderliegenden Zeitpunkten korrelieren signifikant positiv-linear  (r = 0.715, p = .000, n = 50). Die Abhängigkeit durch Vergleich des selben Staats zu verschiedenen Zeitpunkten ist also gegeben und ein Trend über die Jahre deutet sich an. Dieser kann aber über die Korrelation nach Pearson nicht bewiesen werden und es wird im folgenden über einen t-Test die Differenz weiter untersucht.
+
+
+### Überprüfung der Normalverteilung der Differenz
+
+#### Via Histogramm
+
+```{r Histogramm der Differenz}
+hist(DiffPrisoners$difference, main="Histogramm - Vergleich der Jahre 1999/1979", ylab="Anzahl", xlab="Differenz")
+```
+Die Normalverteilung der Differenz ist auf den ersten Blick nicht so leicht zu erkennen, aber sieht nicht so schlecht aus. Dennoch wird im folgenden nochmal mit einem QQPlot überprüft.
+
+#### Zusätzlicher qqPlot
+
+```{r qqPlot Inhaftierung-Jahre}
+qqPlot(DiffPrisoners$difference, main="QQPlot für die Differenz der Inhaftierungsraten", ylab="Inhaftierungsrate")
+```
+
+```{r}
+DiffPrisoners$state[18]
+DiffPrisoners$state[43]
+```
+
+Bis auf ein paar Ausreißer im rechten Bereich des qqPlots, der somit die weit rechts liegenden Daten im Histogramm repliziert sehen die Daten schön normalverteilt aus und die Stichprobe ist mit (n=50) groß. Die markierten Daten gehören zu den Staaten Louisiana und Texas, die politisch im Bereich "law and order" angesiedelt sind.
+
+Es kann daher im folgenden ein t-Test der Differenz durchgeführt werden.
+
+## 5)	Ergebnisse des t-Tests für abhängige Stichproben
+
+```{r}
+testPris <- t.test(DiffPrisoners$prisoners1999, DiffPrisoners$prisoners1979, alternative = "greater", paired = TRUE, conf.level = .95)
+testPris
+```
+
+Die Teststatistik des einseitigen t-Tests beträgt t = 16.407 und die zugehörige Überschreitungswahrscheinlichkeit p = 0.000 bei einem Siginifikanzniveau von 95%. Damit ist der **Unterschied  signifikant** und es wird von der $\cal H_1$ ausgegangen, dass ein einseitiger Unterschied (größer) vorliegt (t(49) = 16.407, p < 2E-16, n= 50).
+
+## 6)	Berechnung der Effektstärke
+
+Zur Berechnung der Effektstärke wird die Methode nach Cohen-Pearson verwendet.
+
+### Cohen und Pearson
+
+Für diese gilt die Formel:
+$$
+r=\sqrt{\frac{t^2}{t^2+df}}
+$$
+
+```{r}
+effCohen <- abs(sqrt(testPris$statistic^2 / (testPris$statistic^2 + testPris$parameter)))
+
+sprintf("Effektstärke: %.4f",effCohen)
+```
+
+Zur Beurteilung der Größe des Effektes dient die Einteilung von Cohen (1992):
+
+$$
+\begin{align}
+\text{Schwacher Effekt: } 0.10 &< ||r|| < 0.30             \\
+\text{Schwacher bis mittlerer Effekt: } 0.30 &= ||r||      \\
+\text{Mittlerer Effekt: } 0.30 &< ||r|| < 0.50             \\
+\text{Mittlerer bis starker Effekt: }0.50 &= ||r||         \\
+\text{Starker Effekt: } 0.50 &< ||r||        
+\end{align}
+$$
+Es ist also bei r=0.92 ein starker Effekt zu beobachten.
+
+## 7)	Eine Aussage
+
+Die beiden Zeitpunkte der Datenerhebung unterscheiden sich zwischen 1979 (Mittelwert=113.5, STD=54.9, n=50) und 1999 (Mittelwert=366.3, STD=141.2, n=50) deutlich in der Inhaftierungsrate. Es liegt eine signifikant positiv-lineare Korrelation vor, die einen Trend und eine Abhängigkeit zeigt (r = 0.715, p = .000, n = 50).   
+Es ergibt sich ein signifikanter Unterschied der Mittelwerte (t(49)=16.407, p < 2E-16, n= 50). Es wurde bewusst einseitig getestet und die Inhaftierungsraten sind im Jahr 1999 somit siginifikant größer. $\cal H_0$ wird verworfen.
+
+Eine Recherche im Internet ergibt, dass ab circa 1980 die Gefängnisse in den USA privatisiert wurden. Dies führt laut Medienberichten zu erhöhten Haftzeiten und schlechterer Resozialisierung (siehe z.B. das "Last Week Tonight"-Feature zu diesem Thema).
+
